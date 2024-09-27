@@ -1,30 +1,29 @@
 #!/usr/bin/env python3
-"""DB module.
+"""DB module
 """
 from sqlalchemy import create_engine, tuple_
 from sqlalchemy.exc import InvalidRequestError
-from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.orm.exc import NoResultFound
 from sqlalchemy.orm.session import Session
-
+from sqlalchemy.orm.exc import NoResultFound
 from user import Base, User
 
+
 class DB:
-    """DB class.
+    """DB class
     """
 
     def __init__(self) -> None:
-        """Initialize a new DB instance.
+        """Initialize a new DB instance
         """
-        self._engine = create_engine("sqlite:///a.db", echo=False)
+        self._engine = create_engine("sqlite:///a.db")
         Base.metadata.drop_all(self._engine)
         Base.metadata.create_all(self._engine)
         self.__session = None
 
     @property
     def _session(self) -> Session:
-        """Memoized session object.
+        """Memoized session object
         """
         if self.__session is None:
             DBSession = sessionmaker(bind=self._engine)
@@ -32,48 +31,58 @@ class DB:
         return self.__session
 
     def add_user(self, email: str, hashed_password: str) -> User:
-        """Adds a new user to the database.
+        """ Creates new User instance and
+            saves them to the database.
+            Args:
+                - email
+                - hashed_password
+            Return:
+                - new User object
         """
+        session = self._session
         try:
             new_user = User(email=email, hashed_password=hashed_password)
-            self._session.add(new_user)
-            self._session.commit()
+            session.add(new_user)
+            session.commit()
         except Exception:
-            self._session.rollback()
+            session.rollback()
             new_user = None
         return new_user
 
     def find_user_by(self, **kwargs) -> User:
-        """Finds a user based on a set of filters.
+        """ Find user by a given attribute
+            Args:
+                - Dictionary of attributes to use as search
+                  parameters
+            Return:
+                - User object
         """
-        fields, values = [], []
-        for key, value in kwargs.items():
-            if hasattr(User, key):
-                fields.append(getattr(User, key))
-                values.append(value)
-            else:
+
+        attrs, vals = [], []
+        for attr, val in kwargs.items():
+            if not hasattr(User, attr):
                 raise InvalidRequestError()
-        result = self._session.query(User).filter(
-            tuple_(*fields).in_([tuple(values)])
-        ).first()
-        if result is None:
+            attrs.append(getattr(User, attr))
+            vals.append(val)
+
+        session = self._session
+        query = session.query(User)
+        user = query.filter(tuple_(*attrs).in_([tuple(vals)])).first()
+        if not user:
             raise NoResultFound()
-        return result
+        return user
 
     def update_user(self, user_id: int, **kwargs) -> None:
-        """Updates a user based on a given id.
+        """ Searches for user instance using given id parameter
+            Args:
+                - user_id: user's id
+            Return:
+                - User instance found
         """
         user = self.find_user_by(id=user_id)
-        if user is None:
-            return
-        update_source = {}
-        for key, value in kwargs.items():
-            if hasattr(User, key):
-                update_source[getattr(User, key)] = value
-            else:
-                raise ValueError()
-        self._session.query(User).filter(User.id == user_id).update(
-            update_source,
-            synchronize_session=False,
-        )
-        self._session.commit()
+        session = self._session
+        for attr, val in kwargs.items():
+            if not hasattr(User, attr):
+                raise ValueError
+            setattr(user, attr, val)
+        session.commit()
